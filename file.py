@@ -6,7 +6,6 @@ from io import BytesIO
 class FileHandler:
     @staticmethod
     def read_pdf(file):
-        """Extract text from PDF using pdfplumber, preserve better layout"""
         text = ""
         # Jika file adalah BytesIO dari Flask upload
         if hasattr(file, 'read'):
@@ -21,7 +20,6 @@ class FileHandler:
 
     @staticmethod
     def read_docx(file):
-        """Read content from DOCX file"""
         # Jika file adalah BytesIO dari Flask upload
         if hasattr(file, 'seek'):
             file.seek(0)  # Reset pointer ke awal file

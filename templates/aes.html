@@ -30,10 +30,8 @@
                             </div>
                             <div class="mb-3" id="encrypt_file_input" {% if input != 'file' %}style="display:none;"{% endif %}>
                                 <label class="form-label text-light">File to Encrypt:</label>
-                                <input type="file" class="form-control" name="file_plaintext" id="file_plaintext">
-                                <!-- {% if uploaded_file %}
-                                <p class="form-label text-light">Uploaded file: {{ uploaded_file.filename }}</p>
-                                {% endif %} -->
+                                <input type="file" class="form-control" name="file_plaintext" id="file_plaintext" accept=".txt,.pdf,.docx,.doc">
+                                <small>Format yang didukung: TXT, PDF, DOCX</small>
                             </div>
 
                             <div class="mb-3" id="encrypt_text_input" {% if input != 'text' %}style="display:none;"{% endif %}>
@@ -63,6 +61,41 @@
                             <p class="bg-light p-2 text-light text-dark rounded">{{ ciphertext }}</p>
                             {% endif %}
                         </div>
+                        <!-- Tampilkan informasi enkripsi jika ada -->
+                        {% if encryption_info %}
+                        <div class="info-box">
+                            <h3>Informasi Enkripsi</h3>
+    
+                            {% if encryption_info.filename %}
+                            <p><strong>File:</strong> {{ encryption_info.filename }}</p>
+                            {% endif %}
+
+                            <p>
+                                <strong>Ukuran Asli:</strong> {{ encryption_info.original_size }}
+                            </p>
+                            <p>
+                                <strong>Ukuran Terenkripsi:</strong> {{ encryption_info.encrypted_size }}
+                            </p>
+                            <p>
+                                <strong>Ukuran Output ({{ encryption_info.format_type }}):</strong> {{ encryption_info.output_size }}
+                            </p>
+                            <p>
+                                <strong>Waktu Enkripsi:</strong> 
+                                <span style="color: #007bff;">{{ encryption_info.encryption_time }}</span>
+                            </p>
+                            
+                            <!-- Tombol Download untuk File -->
+                            {% if show_download_button and cipher_output_b64 %}
+                            <form method="POST" action="/download_encrypted_file" style="margin-top: 15px;">
+                                <input type="hidden" name="cipher_output_b64" value="{{ cipher_output_b64 }}">
+                                <input type="hidden" name="download_filename" value="{{ download_filename }}">
+                                <button type="submit" style="background-color: #28a745;">
+                                    Download
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                        {% endif %}
                     </div>               
                 </div>
                 <!-- DESKRIPSI -->
@@ -81,10 +114,8 @@
                             
                             <div class="mb-3" id="decrypt_file_input" {% if input1 != 'file' %}style="display:none;"{% endif %}>
                                 <label class="form-label text-light">File to Decrypt:</label>
-                                <input type="file" class="form-control" id="file" name="file_ciphertext1">
-                                <!-- {% if uploaded_file1 %}
-                                <p class="form-label text-light">Uploaded file: {{ uploaded_file.filename }}</p>
-                                {% endif %} -->
+                                <input type="file" class="form-control" id="file" name="file_ciphertext1" accept=".txt,.pdf,.docx,.doc">
+                                <small>Format yang didukung: TXT, PDF, DOCX</small>
                             </div>
                             
                             <div class="mb-3" id="decrypt_text_input" {% if input1 != 'text' %}style="display:none;"{% endif %}>
@@ -102,6 +133,35 @@
                             <p class="bg-light p-2 text-light text-dark rounded">{{ plaintext1 }}</p>
                             {% endif %}
                         </div>
+                        {% if decryption_info %}
+                        <div class="info-box">
+                            {% if decryption_info.filename %}
+                        <p><strong>File:</strong> {{ decryption_info.filename }}</p>
+                        {% endif %}   
+
+                        <p>
+                            <strong>Ukuran Awal:</strong> {{ decryption_info.encrypted_size }}
+                        </p>
+                        <p>
+                            <strong>Ukuran Terdekripsi:</strong> {{ decryption_info.decrypted_size }}
+                        </p>
+                        <p>
+                            <strong>Waktu Dekripsi:</strong> 
+                            <span style="color: #28a745;">{{ decryption_info.decryption_time }}</span>
+                        </p>
+                            
+                            <!-- Tombol Download untuk File -->
+                            {% if show_download_button_decrypt and plaintext_b64 %}
+                            <form method="POST" action="/download_decrypted_file" style="margin-top: 15px;">
+                                <input type="hidden" name="plaintext_b64" value="{{ plaintext_b64 }}">
+                                <input type="hidden" name="download_filename" value="{{ download_filename }}">
+                                <button type="submit" style="background-color: #28a745;">
+                                    Download
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                        {% endif %}
                     </div>
                 </div>
             </div>
