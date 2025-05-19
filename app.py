@@ -12,7 +12,6 @@ app = Flask(__name__)
 
 @app.route('/')
 def landing():
-    print("Landing page loaded")
     return render_template('landing.html')
 
 @app.route('/explore')
@@ -307,6 +306,4 @@ def decrypt():
         return render_template('error.html', error=f"Error during decryption: {str(e)}"), 500
 
 if __name__ == '__main__':
-    print("Starting Flask application...")
-    print("Server akan berjalan di: http://127.0.0.1:5000")
-    app.run(debug=True, host='127.0.0.1', port=5000)
+    app.run(debug=True)
