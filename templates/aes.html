@@ -85,14 +85,10 @@
                             </p>
                             
                             <!-- Tombol Download untuk File -->
-                            {% if show_download_button and cipher_output_b64 %}
-                            <form method="POST" action="/download_encrypted_file" style="margin-top: 15px;">
-                                <input type="hidden" name="cipher_output_b64" value="{{ cipher_output_b64 }}">
-                                <input type="hidden" name="download_filename" value="{{ download_filename }}">
-                                <button type="submit" style="background-color: #28a745;">
-                                    Download
-                                </button>
-                            </form>
+                            {% if show_download_button and download_file_id %}
+                            <a href="/download_encrypted_file/{{ download_file_id }}" style="background-color: #28a745; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px; display: inline-block; margin-top: 15px;">
+                                Download
+                            </a>
                             {% endif %}
                         </div>
                         {% endif %}
@@ -114,8 +110,7 @@
                             
                             <div class="mb-3" id="decrypt_file_input" {% if input1 != 'file' %}style="display:none;"{% endif %}>
                                 <label class="form-label text-light">File to Decrypt:</label>
-                                <input type="file" class="form-control" id="file" name="file_ciphertext1" accept=".txt,.pdf,.docx,.doc">
-                                <small>Format yang didukung: TXT, PDF, DOCX</small>
+                                <input type="file" class="form-control" id="file" name="file_ciphertext1">
                             </div>
                             
                             <div class="mb-3" id="decrypt_text_input" {% if input1 != 'text' %}style="display:none;"{% endif %}>
@@ -150,17 +145,12 @@
                             <strong>Waktu Dekripsi:</strong> 
                             <span style="color: #28a745;">{{ decryption_info.decryption_time }}</span>
                         </p>
-                            
-                            <!-- Tombol Download untuk File -->
-                            {% if show_download_button_decrypt and plaintext_b64 %}
-                            <form method="POST" action="/download_decrypted_file" style="margin-top: 15px;">
-                                <input type="hidden" name="plaintext_b64" value="{{ plaintext_b64 }}">
-                                <input type="hidden" name="download_filename" value="{{ download_filename }}">
-                                <button type="submit" style="background-color: #28a745;">
-                                    Download
-                                </button>
-                            </form>
-                            {% endif %}
+                        <!-- Tombol Download untuk File Decrypt -->
+                        {% if show_download_button_decrypt and download_file_id %}
+                        <a href="/download_decrypted_file/{{ download_file_id }}" style="background-color: #28a745; color: white; padding: 10px 15px; text-decoration: none; border-radius: 4px; display: inline-block; margin-top: 15px;">
+                            Download
+                        </a>
+                        {% endif %}
                         </div>
                         {% endif %}
                     </div>

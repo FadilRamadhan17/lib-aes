@@ -1,15 +1,20 @@
 import os
 import base64
 import time
+import tempfile
+import uuid
 from io import BytesIO
-from flask import Flask, request, render_template, send_file
+from flask import Flask, request, render_template, send_file, session
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
-from werkzeug.utils import secure_filename
 from file import FileHandler
-# Komentar import file.py sementara jika belum ada
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
+app.secret_key = os.urandom(24)  # Secret key untuk session
+
+# Dictionary untuk menyimpan file sementara
+temp_files = {}
 
 @app.route('/')
 def landing():
@@ -19,11 +24,15 @@ def landing():
 def explore():
     return render_template('explore.html')
 
+@app.route('/proses')
+def proses():
+    return render_template('proses.html')
+
 @app.route('/aes')
 def aes():
     return render_template('aes.html')
 
-class FastAES:    
+class FastAES:
     def __init__(self, key=None):
         # Pastikan kunci tidak lebih dari 16 byte
         if key is None:
@@ -84,6 +93,7 @@ class FastAES:
         
         return plaintext[:-padding_length]
 
+
 def format_file_size_with_bytes(size_bytes):
     if size_bytes < 1024:
         return f"{size_bytes} bytes"
@@ -92,23 +102,24 @@ def format_file_size_with_bytes(size_bytes):
     else:
         return f"{size_bytes/(1024*1024):.2f} MB ({size_bytes} bytes)"
 
+
 def read_uploaded_file(uploaded_file):
     filename = secure_filename(uploaded_file.filename)
     extension = FileHandler.get_file_extension(filename)
 
     if extension == ".pdf": 
-        # Untuk PDF, kita perlu menyimpan ke BytesIO terlebih dahulu
-        pdf_stream = BytesIO(uploaded_file.read())
-        content = FileHandler.read_pdf(pdf_stream)
+        # Untuk PDF, baca sebagai binary untuk preservasi format lengkap
+        content = uploaded_file.read()  # Baca langsung sebagai bytes
+        content_type = 'binary'
     elif extension == ".docx":
-        # Untuk DOCX, kita juga perlu BytesIO
-        docx_stream = BytesIO(uploaded_file.read())
-        content = FileHandler.read_docx(docx_stream)
+        content = FileHandler.read_docx(uploaded_file)
+        content_type = 'text'
     else:
-        # Untuk file teks biasa
         content = uploaded_file.read().decode('utf-8')
+        content_type = 'text'
 
-    return content, filename, extension
+    return content, filename, extension, content_type
+
 
 def detect_and_convert_format(content):
     if isinstance(content, bytes):
@@ -123,7 +134,7 @@ def detect_and_convert_format(content):
     
     # Coba deteksi sebagai hex
     try:
-        if all(c in '0123456789abcdefABCDEF' for c in content_str):
+        if all(c in '0123456789abcdefABCDEF' for c in content_str) and len(content_str) % 2 == 0:
             return bytes.fromhex(content_str), 'hex'
     except ValueError:
         pass
@@ -141,20 +152,24 @@ def detect_and_convert_format(content):
     
     return None, None
 
-@app.route('/download_encrypted_file', methods=['POST'])
-def download_encrypted_file():
+
+@app.route('/download_encrypted_file/<file_id>')
+def download_encrypted_file(file_id):
     try:
-        # Ambil data dari form
-        cipher_output_b64 = request.form['cipher_output_b64']
-        download_filename = request.form['download_filename']
+        if file_id not in temp_files:
+            return render_template('error.html', error="File tidak ditemukan atau sudah kadaluarsa."), 404
         
-        # Decode cipher output
-        cipher_output = base64.b64decode(cipher_output_b64.encode('utf-8')).decode('utf-8')
+        file_info = temp_files[file_id]
+        cipher_output = file_info['content']
+        download_filename = file_info['filename']
         
         # Siapkan file untuk download
         output_stream = BytesIO()
         output_stream.write(cipher_output.encode('utf-8'))
         output_stream.seek(0)
+        
+        # Hapus file dari memori setelah digunakan
+        del temp_files[file_id]
         
         return send_file(
             output_stream,
@@ -165,29 +180,43 @@ def download_encrypted_file():
     except Exception as e:
         return render_template('error.html', error=f"Error during file download: {str(e)}"), 500
     
-@app.route('/download_decrypted_file', methods=['POST'])
-def download_decrypted_file():
+
+@app.route('/download_decrypted_file/<file_id>')
+def download_decrypted_file(file_id):
     try:
-        # Ambil data dari form
-        plaintext_b64 = request.form['plaintext_b64']
-        download_filename = request.form['download_filename']
+        if file_id not in temp_files:
+            return render_template('error.html', error="File tidak ditemukan atau sudah kadaluarsa."), 404
         
-        # Decode plaintext dari base64
-        plaintext = base64.b64decode(plaintext_b64.encode('utf-8'))
+        file_info = temp_files[file_id]
+        plaintext = file_info['content']
+        download_filename = file_info['filename']
+        original_extension = file_info.get('extension', '')
         
         # Siapkan file untuk download
         output_stream = BytesIO()
         output_stream.write(plaintext)
         output_stream.seek(0)
         
+        # Tentukan mimetype berdasarkan ekstensi asli
+        if original_extension == '.pdf':
+            mimetype = "application/pdf"
+        elif original_extension == '.docx':
+            mimetype = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        else:
+            mimetype = "application/octet-stream"
+        
+        # Hapus file dari memori setelah digunakan
+        del temp_files[file_id]
+        
         return send_file(
             output_stream,
             as_attachment=True,
             download_name=download_filename,
-            mimetype="application/octet-stream"
+            mimetype=mimetype
         )
     except Exception as e:
         return render_template('error.html', error=f"Error during file download: {str(e)}"), 500
+
 
 @app.route('/encrypt', methods=['POST'])
 def encrypt():
@@ -211,17 +240,26 @@ def encrypt():
             uploaded_file = request.files.get('file_plaintext')
             if not uploaded_file or uploaded_file.filename == '':
                 return render_template('error.html', error=f"Tidak ada file yang diunggah."), 400
-            
-            content, filename, extension = read_uploaded_file(uploaded_file)
 
+            content, filename, extension, content_type = read_uploaded_file(uploaded_file)
+            
+            # Tentukan nama file download berdasarkan ekstensi asli SEBELUM digunakan
+            if extension == '.pdf':
+                download_filename = f"{os.path.splitext(filename)[0]}_encrypted.enc"
+            else:
+                download_filename = f"{os.path.splitext(filename)[0]}_encrypted{extension if extension not in ['.pdf', '.docx'] else '.txt'}"
+            
             # Mulai pengukuran waktu
             start_time = time.perf_counter()
             
             # Hitung ukuran file asli
-            original_size = len(content) if isinstance(content, (str, bytes)) else len(str(content).encode('utf-8'))
-            original_bytes = original_size  # Simpan ukuran dalam bytes
+            if isinstance(content, bytes):
+                original_size = len(content)
+            else:
+                original_size = len(content.encode('utf-8'))
+            original_bytes = original_size
             
-            # Proses enkripsi
+            # Enkripsi content (sudah dalam format yang benar - bytes untuk PDF, string untuk lainnya)
             cipher = aes.encrypt(content)
             
             # Hitung waktu enkripsi
@@ -229,20 +267,20 @@ def encrypt():
             
             # Hitung ukuran file setelah enkripsi
             encrypted_size = len(cipher)
-            encrypted_bytes = encrypted_size  # Simpan ukuran dalam bytes
+            encrypted_bytes = encrypted_size
             
             if output_type == 'char':
                 cipher_output = base64.b64encode(cipher).decode('utf-8')
                 output_size = len(cipher_output.encode('utf-8'))
-                output_bytes = output_size  # Simpan ukuran dalam bytes
+                output_bytes = output_size
                 format_type = 'Base64'
             else:
                 cipher_output = cipher.hex()
                 output_size = len(cipher_output.encode('utf-8'))
-                output_bytes = output_size  # Simpan ukuran dalam bytes
+                output_bytes = output_size
                 format_type = 'Hexadecimal'
 
-            # Siapkan informasi untuk template dengan bytes
+            # Siapkan informasi untuk template
             encryption_info = {
                 'original_size': format_file_size_with_bytes(original_bytes),
                 'encrypted_size': format_file_size_with_bytes(encrypted_bytes),
@@ -255,37 +293,36 @@ def encrypt():
             # Tampilkan kunci tanpa padding
             key_display = key.decode('utf-8', errors='replace').rstrip('\x00')
             
-            # Simpan cipher_output dalam session atau enkode dalam base64 untuk form hidden
-            cipher_output_b64 = base64.b64encode(cipher_output.encode('utf-8')).decode('utf-8')
-            download_filename = f"{os.path.splitext(filename)[0]}_encrypted{extension if extension not in ['.pdf', '.docx'] else '.txt'}"
-            
-            # Selalu tampilkan halaman dengan informasi enkripsi terlebih dahulu
+            # Simpan cipher_output dalam temporary storage dengan unique ID
+            file_id = str(uuid.uuid4())
+            temp_files[file_id] = {
+                'content': cipher_output,
+                'filename': download_filename,  # Sekarang sudah terdefinisi
+                'extension': extension
+            }
+
+            # Tampilkan halaman dengan informasi enkripsi terlebih dahulu
             return render_template('aes.html',
                                  input=input_type,
                                  output=output_type,
                                  key=key_display,
                                  encryption_info=encryption_info,
-                                 cipher_output_b64=cipher_output_b64,
+                                 download_file_id=file_id,
                                  download_filename=download_filename,
+                                 original_extension=extension,
                                  show_download_button=True)
 
         elif input_type == 'text':
             plaintext = request.form['plaintext']
             if not plaintext:
                 return render_template('error.html', error=f"Tidak ada teks yang dimasukkan."), 400
-            
-            # Hitung ukuran teks asli
-            original_size = len(plaintext.encode('utf-8'))
-            
-            # Proses enkripsi
+
             cipher = aes.encrypt(plaintext)
             
             if output_type == 'char':
                 cipher_output = base64.b64encode(cipher).decode('utf-8')
-                output_size = len(cipher_output.encode('utf-8'))
             else:
                 cipher_output = cipher.hex()
-                output_size = len(cipher_output.encode('utf-8'))
 
             # Tampilkan kunci tanpa padding
             key_display = key.decode('utf-8', errors='replace').rstrip('\x00')
@@ -301,7 +338,8 @@ def encrypt():
 
     except Exception as e:
         return render_template('error.html', error=f"Error during encryption: {str(e)}"), 500
-    
+
+
 @app.route('/decrypt', methods=['POST'])
 def decrypt():
     try:
@@ -324,31 +362,36 @@ def decrypt():
             if not uploaded_file or uploaded_file.filename == '':
                 return render_template('error.html', error=f"Tidak ada file yang diunggah."), 400
 
-            content, filename, extension = read_uploaded_file(uploaded_file)
+            # Untuk file terenkripsi, baca sebagai text untuk deteksi format
+            filename = secure_filename(uploaded_file.filename)
+            extension = FileHandler.get_file_extension(filename)
+            
+            # Baca file terenkripsi sebagai text
+            content = uploaded_file.read().decode('utf-8')
             
             # Coba deteksi format (hex, base64, atau binary)
             ciphertext_bytes, detected_format = detect_and_convert_format(content)
             if not ciphertext_bytes:
                 return render_template('error.html', error=f"Format ciphertext tidak valid. Berikan input hex atau base64 yang valid."), 400
-            
+
             # Mulai pengukuran waktu
             start_time = time.perf_counter()
 
             # Hitung ukuran file terenkripsi
             encrypted_size = len(ciphertext_bytes)
-            encrypted_bytes = encrypted_size  # Simpan ukuran dalam bytes
-            
+            encrypted_bytes = encrypted_size
+
             try:
                 plaintext = aes.decrypt(ciphertext_bytes)
             except Exception as e:
                 return render_template('error.html', error=f"Gagal mendekripsi: {str(e)}"), 400
-            
+
             # Hitung waktu dekripsi
             decryption_time = time.perf_counter() - start_time
             
             # Hitung ukuran file setelah dekripsi
             decrypted_size = len(plaintext)
-            decrypted_bytes = decrypted_size  # Simpan ukuran dalam bytes
+            decrypted_bytes = decrypted_size
 
             # Siapkan informasi untuk template
             decryption_info = {
@@ -361,23 +404,42 @@ def decrypt():
             # Tampilkan kunci tanpa padding
             key_display = key.decode('utf-8', errors='replace').rstrip('\x00')
 
-            # Untuk file, kita perlu menangani download dan tampilan informasi
-            output_stream = BytesIO()
-            output_stream.write(plaintext)
-            output_stream.seek(0)
+            # Tentukan ekstensi file asli dan nama download
+            if filename.endswith('_encrypted.enc') or filename.endswith('.enc'):
+                # Kemungkinan file PDF yang dienkripsi
+                base_name = filename.replace('_encrypted.enc', '').replace('.enc', '')
+                download_filename = f"{base_name}_decrypted.pdf"
+                original_extension = '.pdf'
+            else:
+                # File lainnya
+                base_name = os.path.splitext(filename)[0]
+                if base_name.endswith('_encrypted'):
+                    base_name = base_name.replace('_encrypted', '')
+                
+                # Coba deteksi apakah plaintext adalah PDF berdasarkan header
+                if plaintext.startswith(b'%PDF'):
+                    download_filename = f"{base_name}_decrypted.pdf"
+                    original_extension = '.pdf'
+                else:
+                    download_filename = f"{base_name}_decrypted{extension if extension not in ['.pdf', '.docx'] else '.txt'}"
+                    original_extension = extension if extension not in ['.pdf', '.docx'] else '.txt'
 
-            download_filename = f"{os.path.splitext(filename)[0]}_decrypted{extension if extension not in ['.pdf', '.docx'] else '.txt'}"
-
-            # Simpan plaintext dalam session atau enkode dalam base64 untuk form hidden
-            plaintext_b64 = base64.b64encode(plaintext).decode('utf-8')
+            # Simpan plaintext dalam temporary storage dengan unique ID
+            file_id = str(uuid.uuid4())
+            temp_files[file_id] = {
+                'content': plaintext,
+                'filename': download_filename,
+                'extension': original_extension
+            }
             
             # Tampilkan halaman dengan informasi dekripsi terlebih dahulu
             return render_template('aes.html',
                                  input1=input_type,
                                  key1=key_display,
                                  decryption_info=decryption_info,
-                                 plaintext_b64=plaintext_b64,
+                                 download_file_id=file_id,
                                  download_filename=download_filename,
+                                 original_extension=original_extension,
                                  show_download_button_decrypt=True)
 
         elif input_type == 'text':
@@ -388,16 +450,10 @@ def decrypt():
             if not ciphertext_bytes:
                 return render_template('error.html', error=f"Format ciphertext tidak valid. Berikan input hex atau base64 yang valid."), 400
 
-            # Hitung ukuran teks terenkripsi
-            encrypted_size = len(ciphertext_bytes)
-            
             try:
                 plaintext = aes.decrypt(ciphertext_bytes)
             except Exception as e:
                 return render_template('error.html', error=f"Gagal mendekripsi: {str(e)}"), 400
-            
-            # Hitung ukuran setelah dekripsi
-            decrypted_size = len(plaintext)
 
             # Tampilkan kunci tanpa padding
             key_display = key.decode('utf-8', errors='replace').rstrip('\x00')
@@ -413,13 +469,21 @@ def decrypt():
                                   input1=input_type,
                                   ciphertext1=ciphertext,
                                   plaintext1=plaintext_decoded,
-                                  key1=key_display)
+                                  key1=key_display,
+                                  detected_format=detected_format)
 
         else:
             return render_template('error.html', error=f"Jenis input tidak valid."), 400
 
     except Exception as e:
         return render_template('error.html', error=f"Error during decryption: {str(e)}"), 500
+
+@app.route('/cleanup_temp_files')
+def cleanup_temp_files():
+    """Route untuk membersihkan file temporary (optional)"""
+    temp_files.clear()
+    return "Temporary files cleared", 200
+
 
 if __name__ == '__main__':
     app.run(debug=True)
