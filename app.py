@@ -362,12 +362,10 @@ def decrypt():
             if not uploaded_file or uploaded_file.filename == '':
                 return render_template('error.html', error=f"Tidak ada file yang diunggah."), 400
 
-            # Untuk file terenkripsi, baca sebagai text untuk deteksi format
             filename = secure_filename(uploaded_file.filename)
             extension = FileHandler.get_file_extension(filename)
             
-            # Baca file terenkripsi sebagai text
-            content = uploaded_file.read().decode('utf-8')
+            content = uploaded_file.read()
             
             # Coba deteksi format (hex, base64, atau binary)
             ciphertext_bytes, detected_format = detect_and_convert_format(content)
@@ -377,8 +375,7 @@ def decrypt():
             # Mulai pengukuran waktu
             start_time = time.perf_counter()
 
-            # Hitung ukuran file terenkripsi
-            encrypted_size = len(ciphertext_bytes)
+            encrypted_size = len(content)
             encrypted_bytes = encrypted_size
 
             try:
@@ -434,13 +431,13 @@ def decrypt():
             
             # Tampilkan halaman dengan informasi dekripsi terlebih dahulu
             return render_template('aes.html',
-                                 input1=input_type,
-                                 key1=key_display,
-                                 decryption_info=decryption_info,
-                                 download_file_id=file_id,
-                                 download_filename=download_filename,
-                                 original_extension=original_extension,
-                                 show_download_button_decrypt=True)
+                                input1=input_type,
+                                key1=key_display,
+                                decryption_info=decryption_info,
+                                download_file_id=file_id,
+                                download_filename=download_filename,
+                                original_extension=original_extension,
+                                show_download_button_decrypt=True)
 
         elif input_type == 'text':
             ciphertext = request.form['text_ciphertext1'].strip()
